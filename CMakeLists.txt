@@ -37,3 +37,6 @@ set_target_properties(${LOCAL_PROJECT_NAME} PROPERTIES RUNTIME_OUTPUT_DIRECTORY 
 #################
 # Dependencies
 #################
+set(BUILD_SHARED_LIBS FALSE)
+add_subdirectory(hidapi)
+target_link_libraries(${LOCAL_PROJECT_NAME} PRIVATE hidapi::winapi)
