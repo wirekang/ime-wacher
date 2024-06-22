@@ -15,9 +15,9 @@ Read IME state and send it to keyboard via Raw HID.
 
 ```cpp
 void raw_hid_receive(uint8_t *data, uint8_t length) {
-    switch(data[1]){
-        case 2: // english;
-        case 3: // korean;
+    switch(data[0]){
+        case 2: // IME opened;
+        case 3: // IME closed;
     }
 }
 ```

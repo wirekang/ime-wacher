@@ -13,8 +13,8 @@
 
 enum MODE : unsigned char {
   MODE_UNDEFINED = 1,
-  MODE_ENG,
-  MODE_KOR,
+  MODE_OPEN,
+  MODE_CLOSE,
 };
 
 static void start();
@@ -88,12 +88,12 @@ void init() {
 MODE get_mode() {
   HWND hwnd = ImmGetDefaultIMEWnd(GetForegroundWindow());
   LRESULT status = SendMessageW(hwnd, WM_IME_CONTROL, IMC_GETOPENSTATUS, NULL);
-  return status ? MODE_KOR : MODE_ENG;
+  return status ? MODE_OPEN : MODE_CLOSE;
 }
 
 void send_mode(MODE mode) {
-  unsigned char buf[RAW_EPSIZE];
-  memset(buf, 0, RAW_EPSIZE);
+  unsigned char buf[RAW_EPSIZE + 1];
+  memset(buf, 0, RAW_EPSIZE + 1);
 
   static hid_device *device = NULL;
   if (device == NULL) {
@@ -106,7 +106,7 @@ void send_mode(MODE mode) {
   }
 
   buf[1] = mode;
-  if (hid_write(device, buf, RAW_EPSIZE) == -1) {
+  if (hid_write(device, buf, RAW_EPSIZE + 1) == -1) {
     device = NULL;
     printf("hid_write() error: %ls\n", hid_error(device));
   }
