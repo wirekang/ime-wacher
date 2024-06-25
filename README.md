@@ -1,12 +1,12 @@
 # IME Watcher
 
-A simple Windows Service, `ime-watcher`, running in the background, fetching IME status changing and notify it to keyboard via RAW Hid.
+Running in the background, watching IME status, notifying it to keyboard via RAW Hid.
 
 ## Usage - Windows
 
 1. Update `src/config.h` to fit with your keyboard(VENDOR_ID, PRODUCT_ID,USAGE_PAGE,USAGE_ID, RAW_EPSIZE).  
 2. Run `build.cmd` to build executable.   
-3. Run `install.cmd` or run `_install.cmd` with admin permission.  
+3. Move `build/bin/Release/ime-watcher.exe` to startup directory (optional).
 
 ## Usage - QMK
 

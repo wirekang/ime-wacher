@@ -1,8 +1,4 @@
 {
   "cmake.buildDirectory": "${workspaceFolder}/build",
-  "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
-  "files.associations": {
-    "mutex": "cpp",
-    "cmath": "cpp"
-  }
+  "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools"
 }
