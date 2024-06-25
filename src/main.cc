@@ -1,122 +1,179 @@
-#pragma comment(lib, "imm32.lib")
-
 #define UNICODE
-#define IMC_GETOPENSTATUS 0x5
+#define SVCNAME TEXT("ime-watcher")
 
-#include <hidapi.h>
+#include <strsafe.h>
+#include <tchar.h>
 #include <windows.h>
+#include <winsvc.h>
 
 #include <chrono>
 
 #include "config.h"
-#include "imm.h"
+#include "svc.h"
+#include "util.h"
 
-enum MODE : unsigned char {
-  MODE_UNDEFINED = 1,
-  MODE_OPEN,
-  MODE_CLOSE,
-};
+SERVICE_STATUS gSvcStatus;
+SERVICE_STATUS_HANDLE gSvcStatusHandle;
+HANDLE ghSvcStopEvent = NULL;
 
-static void start();
-static void init();
-static MODE get_mode();
-static void send_mode(const MODE mode);
-static void sleep(const unsigned short ms);
-static void exit();
+VOID WINAPI SvcCtrlHandler(DWORD);
+VOID WINAPI SvcMain(DWORD, LPTSTR *);
 
-int main() {
-  start();
-  return 1;
-}
+VOID ReportSvcStatus(DWORD, DWORD, DWORD);
+VOID SvcInit(DWORD, LPTSTR *);
 
-void start() {
-  init();
-  MODE previous_mode = MODE_UNDEFINED;
-
+int __cdecl _tmain(int argc, TCHAR *argv[]) {
 #ifdef _DEBUG
-  using std::chrono::duration;
-  using std::chrono::high_resolution_clock;
-#endif
+  printf("debug main\n");
+  printf("debug main\n");
+  printf("debug main\n");
+  svc_start();
+  printf("svg_start failed\n");
+#else
+  SERVICE_TABLE_ENTRY DispatchTable[] = {
+      {SVCNAME, (LPSERVICE_MAIN_FUNCTION)SvcMain}, {NULL, NULL}};
 
-  for (unsigned short i = 0;; i += 1) {
-#ifdef _DEBUG
-    const auto start_time = high_resolution_clock::now();
-#endif
+  // This call returns when the service has stopped.
+  // The process should simply terminate when the call returns.
 
-    const auto mode = get_mode();
-
-#ifdef _DEBUG
-    const auto poll_time = high_resolution_clock::now();
-#endif
-
-    if (previous_mode != mode || i == FORCE_COUNT) {
-      i = 0;
-    }
-
-    if (i < REPEAT_COUNT) {
-#ifdef _DEBUG
-      printf("send_mode(%d) %d\n", i, mode);
-#endif
-      send_mode(mode);
-    }
-
-#ifdef _DEBUG
-    const auto send_time = high_resolution_clock::now();
-#endif
-
-    previous_mode = mode;
-
-#ifdef _DEBUG
-    const duration poll_duration = poll_time - start_time;
-    const duration send_duration = send_time - poll_time;
-    printf("%-4lld%-4lld %d\n", poll_duration.count() / 1000000,
-           send_duration.count() / 1000000, mode);
-#endif
-
-    sleep(DELAY);
+  if (!StartServiceCtrlDispatcher(DispatchTable)) {
+    printf("StartServiceCtrlDispatcher error\n");
   }
+#endif
 }
 
-void init() {
-  if (hid_init() == -1) {
-    auto error = hid_error(NULL);
-    printf("\nhid_error:\n%ls\n", error);
-    exit();
-  };
+//
+// Purpose:
+//   Entry point for the service
+//
+// Parameters:
+//   dwArgc - Number of arguments in the lpszArgv array
+//   lpszArgv - Array of strings. The first string is the name of
+//     the service and subsequent strings are passed by the process
+//     that called the StartService function to start the service.
+//
+// Return value:
+//   None.
+//
+VOID WINAPI SvcMain(DWORD dwArgc, LPTSTR *lpszArgv) {
+  // Register the handler function for the service
+  gSvcStatusHandle = RegisterServiceCtrlHandler(SVCNAME, SvcCtrlHandler);
+  if (!gSvcStatusHandle) {
+    printf("RegisterServiceCtrlHandler error\n");
+    return;
+  }
+
+  // These SERVICE_STATUS members remain as set here
+  gSvcStatus.dwServiceType = SERVICE_WIN32_OWN_PROCESS;
+  gSvcStatus.dwServiceSpecificExitCode = 0;
+
+  // Report initial status to the SCM
+  ReportSvcStatus(SERVICE_START_PENDING, NO_ERROR, 3000);
+
+  // Perform service-specific initialization and work.
+  SvcInit(dwArgc, lpszArgv);
 }
 
-MODE get_mode() {
-  HWND hwnd = ImmGetDefaultIMEWnd(GetForegroundWindow());
-  LRESULT status = SendMessageW(hwnd, WM_IME_CONTROL, IMC_GETOPENSTATUS, NULL);
-  return status ? MODE_OPEN : MODE_CLOSE;
+//
+// Purpose:
+//   The service code
+//
+// Parameters:
+//   dwArgc - Number of arguments in the lpszArgv array
+//   lpszArgv - Array of strings. The first string is the name of
+//     the service and subsequent strings are passed by the process
+//     that called the StartService function to start the service.
+//
+// Return value:
+//   None
+//
+VOID SvcInit(DWORD dwArgc, LPTSTR *lpszArgv) {
+  ghSvcStopEvent = CreateEvent(NULL,   // default security attributes
+                               TRUE,   // manual reset event
+                               FALSE,  // not signaled
+                               NULL);  // no name
+
+  if (ghSvcStopEvent == NULL) {
+    ReportSvcStatus(SERVICE_STOPPED, GetLastError(), 0);
+    return;
+  }
+
+  // Report running status when initialization is complete.
+  ReportSvcStatus(SERVICE_RUNNING, NO_ERROR, 0);
+
+  // TO_DO: Perform work until service stops.
+  svc_start();
+  ReportSvcStatus(SERVICE_STOPPED, ERROR_INVALID_FUNCTION, 0);
 }
 
-void send_mode(MODE mode) {
-  unsigned char buf[RAW_EPSIZE + 1];
-  memset(buf, 0, RAW_EPSIZE + 1);
+//
+// Purpose:
+//   Sets the current service status and reports it to the SCM.
+//
+// Parameters:
+//   dwCurrentState - The current state (see SERVICE_STATUS)
+//   dwWin32ExitCode - The system error code
+//   dwWaitHint - Estimated time for pending operation,
+//     in milliseconds
+//
+// Return value:
+//   None
+//
+VOID ReportSvcStatus(DWORD dwCurrentState, DWORD dwWin32ExitCode,
+                     DWORD dwWaitHint) {
+  static DWORD dwCheckPoint = 1;
 
-  static hid_device *device = NULL;
-  if (device == NULL) {
-    printf("hid_open()\n");
-    device = hid_open(VENDOR_ID, PRODUCT_ID, NULL);
-    if (device == NULL) {
-      printf("no device\n");
+  // Fill in the SERVICE_STATUS structure.
+
+  gSvcStatus.dwCurrentState = dwCurrentState;
+  gSvcStatus.dwWin32ExitCode = dwWin32ExitCode;
+  gSvcStatus.dwWaitHint = dwWaitHint;
+
+  if (dwCurrentState == SERVICE_START_PENDING)
+    gSvcStatus.dwControlsAccepted = 0;
+  else
+    gSvcStatus.dwControlsAccepted = SERVICE_ACCEPT_STOP;
+
+  if ((dwCurrentState == SERVICE_RUNNING) ||
+      (dwCurrentState == SERVICE_STOPPED))
+    gSvcStatus.dwCheckPoint = 0;
+  else
+    gSvcStatus.dwCheckPoint = dwCheckPoint++;
+
+  // Report the status of the service to the SCM.
+  SetServiceStatus(gSvcStatusHandle, &gSvcStatus);
+}
+
+//
+// Purpose:
+//   Called by SCM whenever a control code is sent to the service
+//   using the ControlService function.
+//
+// Parameters:
+//   dwCtrl - control code
+//
+// Return value:
+//   None
+//
+VOID WINAPI SvcCtrlHandler(DWORD dwCtrl) {
+  // Handle the requested control code.
+
+  switch (dwCtrl) {
+    case SERVICE_CONTROL_STOP:
+      ReportSvcStatus(SERVICE_STOP_PENDING, NO_ERROR, 0);
+
+      // Signal the service to stop.
+      svc_stop();
+
+      SetEvent(ghSvcStopEvent);
+      ReportSvcStatus(gSvcStatus.dwCurrentState, NO_ERROR, 0);
+
       return;
-    }
+
+    case SERVICE_CONTROL_INTERROGATE:
+      break;
+
+    default:
+      break;
   }
-
-  buf[1] = mode;
-  if (hid_write(device, buf, RAW_EPSIZE + 1) == -1) {
-    device = NULL;
-    printf("hid_write() error: %ls\n", hid_error(device));
-  }
-}
-
-void sleep(unsigned short ms) {
-  Sleep(ms);
-}
-
-void exit() {
-  hid_exit();
-  exit(1);
 }

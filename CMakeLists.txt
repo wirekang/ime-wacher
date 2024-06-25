@@ -13,6 +13,10 @@ set(DEFINES
 
 set(SOURCES
     main.cc
+    util.cc
+    fetch.cc
+    notify.cc
+    svc.cc
 )
 
 project(${LOCAL_PROJECT_NAME} VERSION ${LOCAL_PROJECT_VERSION} LANGUAGES C CXX)
